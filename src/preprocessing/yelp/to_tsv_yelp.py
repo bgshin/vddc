@@ -42,7 +42,7 @@ def run_to_tsv(target):
 
                         if tokens[1]==special_token:
                             tokenized = ' '.join(word_list)
-                            outline = '%s\t%s\n' % (cls_list[i], tokenized)
+                            outline = '%s\t%s\n' % (cls_list[idx], tokenized)
                             # print outline
                             outhandle.write(outline)
                             # print '\n'
@@ -86,7 +86,7 @@ def run_to_tsv(target):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('-t', default='test', type=str)
+    parser.add_argument('-t', default='train', type=str)
     args = parser.parse_args()
 
     run_to_tsv(args.t)

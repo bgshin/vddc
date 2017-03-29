@@ -26,48 +26,26 @@ def clean_str(string):
     return string.strip().lower()
 
 
-def load_data_and_labels(dataset, rottenTomato=False):
+def load_data_and_labels(dataset_name, target):
     """
     Loads MR polarity data from files, splits the data into words and generates labels.
     Returns split sentences and labels.
     """
-    if rottenTomato:
-        template_txt = '../../data/rt-data-nlp4jtok/%s'
-    else:
-        template_txt = '../../data/tweets/txt/%s'
+    template_txt = '../../../data/%s/%s.tsv'
+    pathtxt = template_txt % (dataset_name, target)
 
-    pathtxt = template_txt % dataset
-
-    x_text=[line.split('\t')[2] for line in open(pathtxt, "r").readlines()]
+    x_text=[line.split('\t')[1] for line in open(pathtxt, "r").readlines()]
     x_text = [s.split(" ") for s in x_text]
 
     y = []
-    if rottenTomato:
-        for line in open(pathtxt, "r").readlines():
-            senti=line.split('\t')[1]
-            if  senti == 'neutral':
-                y.append([0, 0, 1, 0, 0])
 
-            elif senti == 'positive':
-                y.append([0, 0, 0, 1, 0])
-            elif senti == 'very_positive':
-                y.append([0, 0, 0, 0 ,1])
-            elif senti == 'negative':
-                y.append([0, 1, 0, 0 ,0])
-            elif senti == 'very_negative':
-                y.append([1, 0, 0, 0 ,0])
+    for line in open(pathtxt, "r").readlines():
+        senti=line.split('\t')[0]
+        if  senti == '1': # neg
+            y.append([1, 0])
 
-    else:    
-        for line in open(pathtxt, "r").readlines():
-            senti=line.split('\t')[1]
-            if  senti == 'objective':
-                y.append([0, 1, 0])
-
-            elif senti == 'positive':
-                y.append([0, 0, 1])
-
-            else:  # negative
-                y.append([1, 0, 0])
+        else: # senti == '2': # pos
+            y.append([0, 1])
 
     return [x_text, y]
 
@@ -215,13 +193,13 @@ def build_input_data_with_w2v(sentences, labels, w2vmodel):
     return [x, y]
 
 
-def load_data_new(dataset, w2vmodel, padlen):
+def load_data_new(dataset_name, target, w2vmodel, padlen):
     """
     Loads and preprocessed data for the MR dataset.
     Returns input vectors, labels, vocabulary, and inverse vocabulary.
     """
     # Load and preprocess data
-    sentences, labels = load_data_and_labels(dataset)
+    sentences, labels = load_data_and_labels(dataset_name=dataset_name, target=target)
     sentences_padded = pad_sentences(sentences, padlen)
 
     x, y = build_input_data_with_w2v(sentences_padded, labels, w2vmodel)

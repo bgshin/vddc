@@ -6,6 +6,7 @@ def run_trim(target):
     special_token = 'JHFVJHGLUGIUTUDYUCUHYVJUV'
     N_test = 400000
     N_train = 3600000
+    # N_train = 40
     fname = '../../../data/amazon/%s.csv' % target
 
     contents_list = []
@@ -22,7 +23,7 @@ def run_trim(target):
 
     print 'writing to files...'
 
-    if target=='train':
+    if target=='train' or target=='sample':
         num_split = 20
         N = N_train/num_split
         for i in tqdm(range(num_split)):
@@ -34,7 +35,6 @@ def run_trim(target):
                     handle.write(c)
                     handle.write('\r\n%s\r\n' % special_token)
 
-
     else:
         fname = '../../../data/amazon/%s.txt'% (target)
         with open(fname, 'wt') as handle:
@@ -42,7 +42,6 @@ def run_trim(target):
                 c = contents_list[idx]
                 handle.write(c)
                 handle.write('\r\n%s\r\n' % special_token)
-
 
 
 if __name__ == "__main__":

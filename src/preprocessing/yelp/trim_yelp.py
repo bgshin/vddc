@@ -27,11 +27,10 @@ def run_trim(target):
         N = N_train / num_split
         for i in tqdm(range(num_split)):
             fname = '../../../data/yelp/%s_%d.txt' % (target, i)
-
             with open(fname, 'wt') as handle:
                 contents_list_part = contents_list[i * N:(i + 1) * N]
                 for idx in tqdm(range(len(contents_list_part))):
-                    c = contents_list[idx]
+                    c = contents_list_part[idx]
                     handle.write(c)
                     handle.write('\r\n%s\r\n' % special_token)
 
@@ -46,7 +45,7 @@ def run_trim(target):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('-t', default='test', type=str)
+    parser.add_argument('-t', default='train', type=str)
     args = parser.parse_args()
 
     run_trim(args.t)
