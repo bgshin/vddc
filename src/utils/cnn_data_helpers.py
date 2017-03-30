@@ -31,7 +31,7 @@ def load_data_and_labels(dataset_name, target):
     Loads MR polarity data from files, splits the data into words and generates labels.
     Returns split sentences and labels.
     """
-    template_txt = '../../../data/%s/%s.tsv'
+    template_txt = '../../data/%s/%s.tsv'
     pathtxt = template_txt % (dataset_name, target)
 
     x_text=[line.split('\t')[1] for line in open(pathtxt, "r").readlines()]
