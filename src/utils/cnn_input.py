@@ -6,6 +6,7 @@ from __future__ import print_function
 import tensorflow as tf
 import cnn_data_helpers
 import numpy as np
+import math
 
 # Global constants describing the CIFAR-10 data set.
 NUM_CLASSES = 2
@@ -27,38 +28,88 @@ tf.app.flags.DEFINE_string('data_dir', '../../data/tw.%s.tfrecords',
 tf.app.flags.DEFINE_integer('batch_size', 64,
                             """Number of images to process in a batch.""")
 
-class Singleton(type):
-    _instances = {}
-    def __call__(cls, *args, **kwargs):
-        if cls not in cls._instances:
-            cls._instances[cls] = super(Singleton, cls).__call__(*args, **kwargs)
-        return cls._instances[cls]
+# class Singleton(type):
+#     _instances = {}
+#     def __call__(cls, *args, **kwargs):
+#         if cls not in cls._instances:
+#             cls._instances[cls] = super(Singleton, cls).__call__(*args, **kwargs)
+#         return cls._instances[cls]
 
 class DataFeeder(object):
-    __metaclass__ = Singleton
+    # __metaclass__ = Singleton
 
-    def __init__(self, dataset_name):
-        self.sentences, self.labels = cnn_data_helpers.load_data_and_labels(dataset_name=dataset_name, target='sample')
-        self.w2v = {'a':np.array([0.1]*100)}
+    def __init__(self, w2vmodel, dataset_name, target='sample', batch_size = None):
+        self.ids, self.labels = cnn_data_helpers.load_textindex_and_labels(w2vmodel=w2vmodel,
+                                                                            dataset_name=dataset_name, target=target)
+        self.n = len(self.labels)
+        if batch_size == None:
+            self.batch_size = self.n
+        else:
+            self.batch_size = min(self.n, batch_size)
 
-    def _get_word_vector(self, word):
-        try:
-            vec = self.w2v[word]
-        except:
-            vec = np.array([0.0]*100)
+        self.set_batch(self.batch_size)
 
-        return vec
+    def set_batch(self, batch_size=0):
+        self.batch_size = min(self.n, batch_size)
+
+        if self.batch_size == 0: # all samples
+            self.num_batches_per_epoch = self.n
+
+        else:
+            self.num_batches_per_epoch = math.ceil(self.n*1.0 / self.batch_size) + 1
+
+        np.random.seed(3)  # FIX RANDOM SEED
+        self.batch_init()
+
+    def batch_init(self):
+        self.shuffle_indices = np.random.permutation(np.arange(self.n))
+        self.shuffled_ids = self.ids[self.shuffle_indices]
+        self.shuffled_labels = self.labels[self.shuffle_indices]
+
+        self.batch_num = 0
+        self.start_index = self.batch_num * self.batch_size
+        self.end_index = min((self.batch_num + 1) * self.batch_size, self.n)
+
+    def set_batch_all(self):
+        self.set_batch(self.n)
 
     def get_sample(self):
-        return self.sentences[0], self.labels[0]
+        return self.ids[0], self.labels[0]
 
-    def _get_inputs(self, batch_size):
+    def get_next(self):
+        index_log = '%d:%d' % (self.start_index, self.end_index)
+        ids_batch = self.shuffled_ids[self.start_index:self.end_index]
+        labels_batch = self.shuffled_labels[self.start_index:self.end_index]
+        self.batch_num += 1
+
+        if self.batch_num * self.batch_size>=self.n:
+            self.batch_init()
+
+        else:
+            self.start_index = self.batch_num * self.batch_size
+            self.end_index = min((self.batch_num + 1) * self.batch_size, self.n)
+
+        return ids_batch, labels_batch, index_log
+
+    def batch_iter(data, batch_size, num_epochs, shuffle=True):
         """
-        :param batch_size:
-        :return:
-        txts: Images. 4D tensor of [batch_size, 1120, 400, 1] size.
-        labels: Labels. 1D tensor of [batch_size] size.
+        Generates a batch iterator for a dataset.
         """
+        data = np.array(data)
+        data_size = len(data)
+        num_batches_per_epoch = int(len(data) / batch_size) + 1
+        np.random.seed(3)  # FIX RANDOM SEED
+        for epoch in range(num_epochs):
+            # Shuffle the data at each epoch
+            if shuffle:
+                shuffle_indices = np.random.permutation(np.arange(data_size))
+                shuffled_data = data[shuffle_indices]
+            else:
+                shuffled_data = data
+            for batch_num in range(num_batches_per_epoch):
+                start_index = batch_num * batch_size
+                end_index = min((batch_num + 1) * batch_size, data_size)
+                yield shuffled_data[start_index:end_index]
 
 
 

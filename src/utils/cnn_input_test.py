@@ -20,8 +20,48 @@ with Timer('w2v..'):
     w2vmodel, vocab_size = load_w2v(w2vdim=w2vdim)
 
 
-yelp = DataFeeder('yelp')
-txt, y = yelp.get_sample()
+yelp_dev = DataFeeder(w2vmodel, 'yelp', 'sample', batch_size=4)
+yelp_trn = DataFeeder(w2vmodel, 'yelp', 'sample')
+yelp_tst = DataFeeder(w2vmodel, 'yelp', 'sample')
+
+
+print 'batch 4'
+for i in range(10):
+    x,y, index_log = yelp_dev.get_next()
+    print len(x), index_log
+
+print 'batch all'
+yelp_dev.set_batch_all()
+for i in range(10):
+    x,y, index_log = yelp_dev.get_next()
+    print len(x), index_log
+
+print 'batch 2'
+yelp_dev.set_batch(2)
+for i in range(10):
+    x,y, index_log = yelp_dev.get_next()
+    print len(x), index_log
+
+print 'batch 3'
+yelp_dev.set_batch(3)
+for i in range(10):
+    x,y, index_log = yelp_dev.get_next()
+    print len(x), index_log
+# txt, y = yelp.get_sample()
+
+print 'batch 12'
+yelp_dev.set_batch(12)
+for i in range(10):
+    x,y, index_log = yelp_dev.get_next()
+    print len(x), index_log
+
+print 'batch 9'
+yelp_dev.set_batch(9)
+for i in range(10):
+    x,y, index_log = yelp_dev.get_next()
+    print len(x), index_log
+
+exit(1)
 
 cnn = CNN(vocab_size)
 # cnn.embedding = np.zeros([vocab_size,w2vdim])
