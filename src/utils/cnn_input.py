@@ -149,4 +149,5 @@ def get_inputs(target, batch_size=4):
     data_dir = FLAGS.data_dir % target
     txts, labels = _get_inputs(data_dir=data_dir, batch_size=batch_size)
 
+
     return txts, labels

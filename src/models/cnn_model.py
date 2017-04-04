@@ -7,7 +7,7 @@ tf.app.flags.DEFINE_boolean('use_fp16', False,
                             """Train the model using fp16.""")
 TOWER_NAME = 'tower'
 NUM_CLASSES = 2
-sequence_length = 1200
+sequence_length = 1
 embedding_size = 100
 
 
@@ -105,21 +105,30 @@ def _activation_summary(x):
 
 class CNN(object):
     def __init__(self, vocab_size):
-        self.input_x = tf.placeholder(tf.float32, [None, sequence_length, embedding_size], name="input_x")
+        self.input_x = tf.placeholder(tf.int32, [None, sequence_length], name="input_x")
         self.input_y = tf.placeholder(tf.float32, [None, NUM_CLASSES], name="input_y")
         self.embedding = tf.placeholder(tf.float32, [vocab_size, embedding_size])
+        print 'self.embedding', self.embedding
 
         self.w2v = _variable_with_weight_decay('embedding',
                                                 shape=[vocab_size, embedding_size],
                                                 stddev=0.1,
                                                 wd=None,
                                                 trainable=False)
+        print 'self.w2v', self.w2v
+
+        self.embedding_params = self.w2v.assign(self.embedding)
+        print 'self.embedding_params',self.embedding_params
 
         # embedding_init = self.w2v.assign(self.embedding)
 
     def lookup(self):
-
-        embedded_chars = tf.nn.embedding_lookup(self.w2v, self.input_x)
+        # embedded_tokens = tf.nn.embedding_lookup(self.embedding_params, self.input_x)
+        embedded_tokens = tf.nn.embedding_lookup(self.w2v, self.input_x)
+        print 'embedded_tokens', embedded_tokens
+        self.embedded_tokens_expanded = tf.expand_dims(embedded_tokens, -1)
+        # (?, 1200, 100, 1)
+        print 'embedded_tokens_expanded', self.embedded_tokens_expanded
 
 
 

@@ -14,6 +14,7 @@ import tensorflow as tf
 import cnnt_input
 import cnn_model
 from sklearn.metrics import precision_score, recall_score, f1_score
+from src.models.cnn_model import CNN
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -32,7 +33,7 @@ tf.app.flags.DEFINE_integer('n_dev', 56000,
 tf.app.flags.DEFINE_integer('n_tst', 38000,
                             """Number of batches for tst.""")
 
-def tower_loss(namescope, target, batch_size=4):
+def tower_loss(model, namescope, target, batch_size=4):
     """Calculate the total loss on a single tower running the CIFAR model.
 
     Args:
@@ -42,7 +43,8 @@ def tower_loss(namescope, target, batch_size=4):
      Tensor of shape [] containing the total loss for a batch of data
     """
     # Get images and labels for tweets
-    txts, labels = cnnt_input.get_inputs(target, batch_size=batch_size)
+    # txts, labels = cnnt_input.get_inputs(target, batch_size=batch_size)
+    txts, labels = cnn.lookup(target, batch_size=batch_size)
 
     # Build inference Graph.
     if target=='trn':
@@ -120,6 +122,11 @@ def train():
     maxtst = 0
     maxindex = 0
 
+
+
+    vocab_size = 20000
+    cnn = CNN(vocab_size)
+
     """Train cnnt for a number of steps."""
     with tf.Graph().as_default(), tf.device('/cpu:0'):
         # Create a variable to count the number of train() calls. This equals the
@@ -137,14 +144,14 @@ def train():
             with tf.device('/gpu:%d' % 0):
                 with tf.name_scope('%s_%d_dev' % (cnn_model.TOWER_NAME, 0)) as namescope:
                     loss_dev, accuracy_dev, logits_dev, y_true_dev, y_pred_dev = \
-                        tower_loss(namescope, 'dev', batch_size=FLAGS.n_dev)
+                        tower_loss(cnn, namescope, 'dev', batch_size=FLAGS.n_dev)
                     # Reuse variables for the next tower.
                     tf.get_variable_scope().reuse_variables()
 
             with tf.device('/gpu:%d' % 1):
                 with tf.name_scope('%s_%d_tst' % (cnn_model.TOWER_NAME, 0)) as namescope:
                     loss_tst, accuracy_tst, logits_tst, y_true_tst, y_pred_tst = \
-                        tower_loss(namescope, 'tst', batch_size=FLAGS.n_tst)
+                        tower_loss(cnn, namescope, 'tst', batch_size=FLAGS.n_tst)
                     # Reuse variables for the next tower.
                     tf.get_variable_scope().reuse_variables()
 
@@ -155,7 +162,7 @@ def train():
                         # Calculate the loss for one tower of the CIFAR model. This function
                         # constructs the entire CIFAR model but shares the variables across
                         # all towers.
-                        loss, accuracy, _, _, _ = tower_loss(namescope, 'trn', batch_size=FLAGS.batch_size)
+                        loss, accuracy, _, _, _ = tower_loss(cnn, namescope, 'trn', batch_size=FLAGS.batch_size)
 
                         # Reuse variables for the next tower.
                         tf.get_variable_scope().reuse_variables()
