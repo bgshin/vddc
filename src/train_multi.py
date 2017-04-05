@@ -25,8 +25,8 @@ FLAGS = tf.app.flags.FLAGS
 tf.app.flags.DEFINE_string('train_dir', './train/',
                            """Directory where to write event logs """
                            """and checkpoint.""")
-tf.app.flags.DEFINE_integer('max_steps', 1000000,
-                            """Number of batches to run.""")
+tf.app.flags.DEFINE_integer('max_steps', 100000,
+                            """Number of batches to run. (100epoch = 100*1000 steps, 560,000/500=1000)""")
 tf.app.flags.DEFINE_integer('num_gpus', 4,
                             """How many GPUs to use.""")
 tf.app.flags.DEFINE_boolean('log_device_placement', False,
@@ -274,6 +274,7 @@ def train():
         summary_writer = tf.summary.FileWriter(FLAGS.train_dir, sess.graph)
 
         for step in xrange(FLAGS.max_steps):
+            save_model = False
             start_time = time.time()
             # _, loss_value = sess.run([train_op, loss])
             x_batch, y_batch = yelp_trn.get_next()
@@ -372,17 +373,18 @@ def train():
                 format_str = ('[Test] %s: step %d, acc = %.4f, f1 = %.4f')
                 print(format_str % (datetime.now(), step,  acc_avg_tst_sum / batch_iter, f1_avg_tst_sum / batch_iter))
 
-                if maxdev<f1_avg_dev:
-                    maxdev = f1_avg_dev
-                    maxtst = f1_avg_tst_sum / batch_iter
+                if maxdev<(acc_avg_dev_sum/batch_iter):
+                    maxdev = acc_avg_dev_sum/batch_iter
+                    maxtst = acc_avg_tst_sum / batch_iter
                     maxindex = step
+                    save_model = True
 
                 format_str = ('[Status] %s: step %d, maxindex = %d, maxdev = %.4f, maxtst = %.4f')
                 print(format_str % (datetime.now(), step, maxindex, maxdev, maxtst))
 
 
             # Save the model checkpoint periodically.
-            if step % 1000 == 0 or (step + 1) == FLAGS.max_steps:
+            if save_model or (step + 1) == FLAGS.max_steps:
                 checkpoint_path = os.path.join(FLAGS.train_dir, 'model.ckpt')
                 saver.save(sess, checkpoint_path, global_step=step)
 
