@@ -7,7 +7,7 @@ tf.app.flags.DEFINE_boolean('use_fp16', False,
                             """Train the model using fp16.""")
 TOWER_NAME = 'tower'
 NUM_CLASSES = 2
-sequence_length = 1
+sequence_length = 10
 embedding_size = 100
 
 

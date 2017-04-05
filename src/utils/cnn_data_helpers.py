@@ -26,7 +26,7 @@ def clean_str(string):
     return string.strip().lower()
 
 
-def load_textindex_and_labels(w2vmodel, dataset_name, target):
+def load_textindex_and_labels(w2vmodel, maxlen, dataset_name, target):
     """
     Loads MR polarity data from files, splits the data into words and generates labels.
     Returns split sentences and labels.
@@ -41,7 +41,14 @@ def load_textindex_and_labels(w2vmodel, dataset_name, target):
     x_text = []
     for s in x_text_temp:
         x_sentence = []
-        for token in s.strip().split(" "):
+        tokens = s.strip().split(" ")
+        n_token = len(tokens)
+        for i in range(maxlen):
+            if i<n_token:
+                token = tokens[i]
+            else:
+                token = '<(PAD>)'
+
             try:
                 idx = w2vmodel.vocab[token].index
 

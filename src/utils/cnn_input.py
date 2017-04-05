@@ -38,16 +38,19 @@ tf.app.flags.DEFINE_integer('batch_size', 64,
 class DataFeeder(object):
     # __metaclass__ = Singleton
 
-    def __init__(self, w2vmodel, dataset_name, target='sample', batch_size = None):
-        self.ids, self.labels = cnn_data_helpers.load_textindex_and_labels(w2vmodel=w2vmodel,
+    def __init__(self, w2vmodel, dataset_name, target='sample', maxlen=10, batch_size = None, shuffle=True):
+        self.ids, self.labels = cnn_data_helpers.load_textindex_and_labels(w2vmodel=w2vmodel, maxlen=maxlen,
                                                                             dataset_name=dataset_name, target=target)
         self.n = len(self.labels)
+        self.shuffle = shuffle
+
         if batch_size == None:
             self.batch_size = self.n
         else:
             self.batch_size = min(self.n, batch_size)
 
         self.set_batch(self.batch_size)
+
 
     def set_batch(self, batch_size=0):
         self.batch_size = min(self.n, batch_size)
@@ -62,7 +65,12 @@ class DataFeeder(object):
         self.batch_init()
 
     def batch_init(self):
-        self.shuffle_indices = np.random.permutation(np.arange(self.n))
+        if self.shuffle:
+            self.shuffle_indices = np.random.permutation(np.arange(self.n))
+
+        else:
+            self.shuffle_indices = np.arange(self.n)
+
         self.shuffled_ids = self.ids[self.shuffle_indices]
         self.shuffled_labels = self.labels[self.shuffle_indices]
 
