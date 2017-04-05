@@ -5,11 +5,19 @@ import re
 FLAGS = tf.app.flags.FLAGS
 tf.app.flags.DEFINE_boolean('use_fp16', False,
                             """Train the model using fp16.""")
-TOWER_NAME = 'tower'
-NUM_CLASSES = 2
-sequence_length = 10
-embedding_size = 100
+tf.app.flags.DEFINE_integer('sequence_length', 1200,
+                            """Number of batches to run.""")
+tf.app.flags.DEFINE_integer('embedding_size', 100,
+                            """Number of batches to run.""")
+tf.app.flags.DEFINE_integer('NUM_CLASSES', 2,
+                            """Number of batches to run.""")
+tf.app.flags.DEFINE_integer('num_filters', 64,
+                            """Number of batches to run.""")
+tf.flags.DEFINE_string("filter_sizes", "2,3,4,5", "Comma-separated filter sizes (default: '3,4,5')")
+# FLAGS.num_filters
+tf.flags.DEFINE_string("TOWER_NAME", "tower", "multi gpu tower name")
 
+# FLAGS.TOWER_NAME = 'tower'
 
 def _variable_on_cpu(name, shape, initializer, trainable):
     """Helper to create a Variable stored on CPU memory.
@@ -97,7 +105,7 @@ def _activation_summary(x):
     """
     # Remove 'tower_[0-9]/' from the name in case this is a multi-GPU training
     # session. This helps the clarity of presentation on tensorboard.
-    tensor_name = re.sub('%s_[0-9]*/' % TOWER_NAME, '', x.op.name)
+    tensor_name = re.sub('%s_[0-9]*/' % FLAGS.TOWER_NAME, '', x.op.name)
     tf.summary.histogram(tensor_name + '/activations', x)
     tf.summary.scalar(tensor_name + '/sparsity',
                       tf.nn.zero_fraction(x))
@@ -105,13 +113,13 @@ def _activation_summary(x):
 
 class CNN(object):
     def __init__(self, vocab_size):
-        self.input_x = tf.placeholder(tf.int32, [None, sequence_length], name="input_x")
-        self.input_y = tf.placeholder(tf.float32, [None, NUM_CLASSES], name="input_y")
-        self.embedding = tf.placeholder(tf.float32, [vocab_size, embedding_size])
+        self.input_x = tf.placeholder(tf.int32, [None, FLAGS.sequence_length], name="input_x")
+        self.input_y = tf.placeholder(tf.float32, [None, FLAGS.NUM_CLASSES], name="input_y")
+        self.embedding = tf.placeholder(tf.float32, [vocab_size, FLAGS.embedding_size])
         print 'self.embedding', self.embedding
 
         self.w2v = _variable_with_weight_decay('embedding',
-                                                shape=[vocab_size, embedding_size],
+                                                shape=[vocab_size, FLAGS.embedding_size],
                                                 stddev=0.1,
                                                 wd=None,
                                                 trainable=False)
@@ -129,6 +137,8 @@ class CNN(object):
         self.embedded_tokens_expanded = tf.expand_dims(embedded_tokens, -1)
         # (?, 1200, 100, 1)
         print 'embedded_tokens_expanded', self.embedded_tokens_expanded
+
+        return self.embedded_tokens_expanded, self.input_y
 
 
 
@@ -148,28 +158,25 @@ class CNN(object):
         # If we only ran this model on a single GPU, we could simplify this function
         # by replacing all instances of tf.get_variable() with tf.Variable().
         #
-        sequence_length = 60
-        embedding_size = 400
-        num_filters = 64
-        filter_sizes = [2, 3, 4, 5]
+
 
         pooled_outputs = []
-        for i, filter_size in enumerate(filter_sizes):
+        for i, filter_size in enumerate(list(map(int, FLAGS.filter_sizes.split(",")))):
             with tf.variable_scope("conv-maxpool-%s" % filter_size) as scope:
-                cnn_shape = [filter_size, embedding_size, 1, num_filters]
+                cnn_shape = [filter_size, FLAGS.embedding_size, 1, FLAGS.num_filters]
                 kernel = _variable_with_weight_decay('weights',
                                                      shape=cnn_shape,
                                                      stddev=0.1,
                                                      wd=None,
                                                      trainable=True)
                 conv = tf.nn.conv2d(txts, kernel, [1, 1, 1, 1], padding='VALID')
-                biases = _variable_on_cpu('biases', [num_filters], tf.constant_initializer(0.0))
+                biases = _variable_on_cpu('biases', [FLAGS.num_filters], tf.constant_initializer(0.0), trainable=True)
                 pre_activation = tf.nn.bias_add(conv, biases)
                 conv_out = tf.nn.relu(pre_activation, name=scope.name)
                 _activation_summary(conv_out)
 
 
-                ksize = [1, sequence_length - filter_size + 1, 1, 1]
+                ksize = [1, FLAGS.sequence_length - filter_size + 1, 1, 1]
                 print 'filter_size', filter_size
                 print 'ksize', ksize
                 print 'conv_out', conv_out
@@ -186,7 +193,7 @@ class CNN(object):
 
 
         # print 'norm1', norm1
-        num_filters_total = num_filters * len(filter_sizes)
+        num_filters_total = FLAGS.num_filters * len(list(map(int, FLAGS.filter_sizes.split(","))))
         h_pool = tf.concat(pooled_outputs, 3)
 
         h_pool = tf.concat(pooled_outputs, 3)
@@ -202,10 +209,10 @@ class CNN(object):
 
 
         with tf.variable_scope('softmax_linear') as scope:
-            weights = _variable_with_weight_decay_xavier('weights', [num_filters_total, NUM_CLASSES],
+            weights = _variable_with_weight_decay_xavier('weights', [num_filters_total, FLAGS.NUM_CLASSES],
                                                 wd=0.2, trainable=True)
-            biases = _variable_on_cpu('biases', [NUM_CLASSES],
-                                      tf.constant_initializer(0.1))
+            biases = _variable_on_cpu('biases', [FLAGS.NUM_CLASSES],
+                                      tf.constant_initializer(0.1), trainable=True)
             softmax_linear = tf.add(tf.matmul(h_pool_flat, weights), biases, name=scope.name)
             _activation_summary(softmax_linear)
 
