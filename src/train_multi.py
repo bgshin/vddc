@@ -339,7 +339,7 @@ def train():
                 print(format_str % (datetime.now(), step, acc_avg_dev_sum/batch_iter, f1_avg_dev_sum/batch_iter))
                 sys.stdout.flush()
 
-                f1_avg_dev = f1_avg_dev_sum/batch_iter
+                acc_avg_dev = acc_avg_dev_sum/batch_iter
 
                 # tst
                 batch_iter = 0
@@ -379,8 +379,8 @@ def train():
                 print(format_str % (datetime.now(), step,  acc_avg_tst_sum / batch_iter, f1_avg_tst_sum / batch_iter))
                 sys.stdout.flush()
 
-                if maxdev<(acc_avg_dev_sum/batch_iter):
-                    maxdev = acc_avg_dev_sum/batch_iter
+                if maxdev<acc_avg_dev:
+                    maxdev = acc_avg_dev
                     maxtst = acc_avg_tst_sum / batch_iter
                     maxindex = step
                     save_model = True
