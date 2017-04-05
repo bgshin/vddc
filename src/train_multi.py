@@ -32,14 +32,25 @@ tf.app.flags.DEFINE_integer('num_gpus', 4,
 tf.app.flags.DEFINE_boolean('log_device_placement', False,
                             """Whether to log device placement.""")
 tf.app.flags.DEFINE_float('dropout_keep_prob', 0.8, """dropout_keep_prob""")
-tf.app.flags.DEFINE_integer('max_batch', 10000,
+
+tf.app.flags.DEFINE_integer('max_batch', 2000,
                             """Maximum possible batch size (56000*1200 = 25Gb, 10000*1200~>5Gb).""")
 tf.app.flags.DEFINE_integer('n_dev', 56000,
                             """Number of batches for dev.""")
 tf.app.flags.DEFINE_integer('n_tst', 38000,
                             """Number of batches for tst.""")
-tf.app.flags.DEFINE_integer('n_trn', 100,
+tf.app.flags.DEFINE_integer('n_trn', 500,
                             """Number of batches for tst.""")
+
+# tf.app.flags.DEFINE_integer('max_batch', 2,
+#                             """Maximum possible batch size (56000*1200 = 25Gb, 10000*1200~>5Gb).""")
+# tf.app.flags.DEFINE_integer('n_dev', 10,
+#                             """Number of batches for dev.""")
+# tf.app.flags.DEFINE_integer('n_tst', 10,
+#                             """Number of batches for tst.""")
+# tf.app.flags.DEFINE_integer('n_trn', 3,
+#                             """Number of batches for tst.""")
+
 
 def load_w2v(w2vdim):
     # model_path = '../../data/w2vnew/corpus.friends+nyt+wiki+amazon.fasttext.skip.d%d.vec' % w2vdim
@@ -246,7 +257,8 @@ def train():
         # Start running operations on the Graph. allow_soft_placement must be set to
         # True to build towers on GPU, as some of the ops do not have GPU
         # implementations.
-        gpu_options = tf.GPUOptions(visible_device_list=str('2,3'), allow_growth=True) # o
+        gpu_options = tf.GPUOptions(visible_device_list=str('0,1,2,3'), allow_growth=True) # o
+        # gpu_options = tf.GPUOptions(visible_device_list=str('2,3'), allow_growth=True)  # o
         sess = tf.Session(config=tf.ConfigProto(
             gpu_options=gpu_options,
             allow_soft_placement=True,
@@ -265,8 +277,9 @@ def train():
             start_time = time.time()
             # _, loss_value = sess.run([train_op, loss])
             x_batch, y_batch = yelp_trn.get_next()
-            _, loss_value, accuracy_val = sess.run([train_op, loss, accuracy],
+            _, summary_str, loss_value, accuracy_val = sess.run([train_op, summary_op, loss, accuracy],
                                                    feed_dict={cnn.input_x: x_batch, cnn.input_y: y_batch})
+            summary_writer.add_summary(summary_str, step)
 
             # embedded_tokens_expanded = \
             #     sess.run(cnn.embedded_tokens_expanded, feed_dict={cnn.input_x: x})  # apple index 3369
@@ -286,39 +299,82 @@ def train():
                                      examples_per_sec, sec_per_batch))
 
             if step % 100 == 0:
-                # for i
-                x_dev, y_dev = yelp_dev.get_next()
-                summary_str, loss_dev_value, accuracy_dev_value, logits_dev_value, y_true_dev_value, y_pred_dev_value = \
-                    sess.run([summary_op, loss_dev, accuracy_dev, logits_dev, y_true_dev, y_pred_dev],
-                             feed_dict={cnn.input_x: x_dev, cnn.input_y: y_dev})
-                summary_writer.add_summary(summary_str, step)
+                # dev
+                batch_iter = 0
+                cum_sample = 0
+                f1_avg_dev_sum = 0
+                acc_avg_dev_sum = 0
+                while True:
+                    x_dev, y_dev = yelp_dev.get_next()
+                    batch_sample = len(y_dev)
+                    cum_sample += batch_sample
 
-                f1_neg_dev = f1_score(y_true_dev_value==0, y_pred_dev_value==0)
-                f1_pos_dev = f1_score(y_true_dev_value == 2, y_pred_dev_value == 2)
-                f1_avg_dev = (f1_neg_dev+f1_pos_dev)/2
+                    loss_dev_value, accuracy_dev_value, logits_dev_value, y_true_dev_value, y_pred_dev_value = \
+                        sess.run([loss_dev, accuracy_dev, logits_dev, y_true_dev, y_pred_dev],
+                                 feed_dict={cnn.input_x: x_dev, cnn.input_y: y_dev})
+
+                    f1_neg_dev = f1_score(y_true_dev_value==0, y_pred_dev_value==0)
+                    f1_pos_dev = f1_score(y_true_dev_value == 1, y_pred_dev_value == 1)
+                    f1_avg_dev = (f1_neg_dev+f1_pos_dev)/2
+
+                    f1_avg_dev_sum += f1_avg_dev
+                    acc_avg_dev_sum += accuracy_dev_value
+
+                    format_str = ('[Eval_batch(%d)(%d,%d)] %s: step %d, loss = %.4f, acc = %.4f, f1neg = %.4f, f1pos = %.4f, f1 = %.4f')
+                    print(format_str % (batch_iter, batch_sample, cum_sample, datetime.now(),
+                                        step, loss_dev_value, accuracy_dev_value,
+                                        f1_neg_dev, f1_pos_dev, f1_avg_dev))
+
+                    batch_iter+=1
+
+                    if yelp_dev.batch_num == 0:
+                        break
 
 
-                format_str = ('[Eval] %s: step %d, loss = %.4f, acc = %.4f, f1neg = %.4f, f1pos = %.4f, f1 = %.4f')
-                print(format_str % (datetime.now(), step, loss_dev_value, accuracy_dev_value,
-                                    f1_neg_dev, f1_pos_dev, f1_avg_dev))
+                format_str = ('[Eval] %s: step %d, acc = %.4f, f1 = %.4f')
+                print(format_str % (datetime.now(), step, acc_avg_dev_sum/batch_iter, f1_avg_dev_sum/batch_iter))
 
-                x_tst, y_tst = yelp_tst.get_next()
+                f1_avg_dev = f1_avg_dev_sum/batch_iter
 
-                loss_tst_value, accuracy_tst_value, logits_tst_value, y_true_tst_value, y_pred_tst_value = \
-                    sess.run([loss_tst, accuracy_tst, logits_tst, y_true_tst, y_pred_tst],
-                             feed_dict={cnn.input_x: x_tst, cnn.input_y: y_tst})
+                # tst
+                batch_iter = 0
+                cum_sample = 0
+                f1_avg_tst_sum = 0
+                acc_avg_tst_sum = 0
+                while True:
+                    x_tst, y_tst = yelp_tst.get_next()
+                    batch_sample = len(y_tst)
+                    cum_sample += batch_sample
 
-                f1_neg_tst = f1_score(y_true_tst_value == 0, y_pred_tst_value == 0)
-                f1_pos_tst = f1_score(y_true_tst_value == 2, y_pred_tst_value == 2)
-                f1_avg_tst = (f1_neg_tst + f1_pos_tst) / 2
+                    loss_tst_value, accuracy_tst_value, logits_tst_value, y_true_tst_value, y_pred_tst_value = \
+                        sess.run([loss_tst, accuracy_tst, logits_tst, y_true_tst, y_pred_tst],
+                                 feed_dict={cnn.input_x: x_tst, cnn.input_y: y_tst})
 
-                format_str = ('[Test] %s: step %d, loss = %.4f, acc = %.4f, f1neg = %.4f, f1pos = %.4f, f1 = %.4f')
-                print(format_str % (datetime.now(), step, loss_tst_value, accuracy_tst_value,
-                                    f1_neg_tst, f1_pos_tst, f1_avg_tst))
+                    f1_neg_tst = f1_score(y_true_tst_value == 0, y_pred_tst_value == 0)
+                    f1_pos_tst = f1_score(y_true_tst_value == 1, y_pred_tst_value == 1)
+                    f1_avg_tst = (f1_neg_tst + f1_pos_tst) / 2
+
+                    f1_avg_tst_sum += f1_avg_tst
+                    acc_avg_tst_sum += accuracy_tst_value
+
+                    format_str = (
+                    '[Test_batch(%d)(%d,%d)] %s: step %d, loss = %.4f, acc = %.4f, f1neg = %.4f, f1pos = %.4f, f1 = %.4f')
+                    print(format_str % (batch_iter, batch_sample, cum_sample, datetime.now(),
+                                        step, loss_tst_value, accuracy_tst_value,
+                                        f1_neg_tst, f1_pos_tst, f1_avg_tst))
+
+                    batch_iter += 1
+
+                    if yelp_tst.batch_num == 0:
+                        break
+
+
+                format_str = ('[Test] %s: step %d, acc = %.4f, f1 = %.4f')
+                print(format_str % (datetime.now(), step,  acc_avg_tst_sum / batch_iter, f1_avg_tst_sum / batch_iter))
 
                 if maxdev<f1_avg_dev:
                     maxdev = f1_avg_dev
-                    maxtst = f1_avg_tst
+                    maxtst = f1_avg_tst_sum / batch_iter
                     maxindex = step
 
                 format_str = ('[Status] %s: step %d, maxindex = %d, maxdev = %.4f, maxtst = %.4f')
