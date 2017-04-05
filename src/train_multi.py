@@ -18,6 +18,7 @@ from src.models.cnn_model import CNN
 from src.utils.cnn_input import DataFeeder
 from src.utils.word2vecReader import Word2Vec
 from src.utils.butils import Timer
+import sys
 
 
 FLAGS = tf.app.flags.FLAGS
@@ -298,6 +299,7 @@ def train():
                               'sec/batch)')
                 print (format_str % (datetime.now(), step, loss_value, accuracy_val,
                                      examples_per_sec, sec_per_batch))
+                sys.stdout.flush()
 
             if step % 100 == 0:
                 # dev
@@ -325,6 +327,7 @@ def train():
                     print(format_str % (batch_iter, batch_sample, cum_sample, datetime.now(),
                                         step, loss_dev_value, accuracy_dev_value,
                                         f1_neg_dev, f1_pos_dev, f1_avg_dev))
+                    sys.stdout.flush()
 
                     batch_iter+=1
 
@@ -334,6 +337,7 @@ def train():
 
                 format_str = ('[Eval] %s: step %d, acc = %.4f, f1 = %.4f')
                 print(format_str % (datetime.now(), step, acc_avg_dev_sum/batch_iter, f1_avg_dev_sum/batch_iter))
+                sys.stdout.flush()
 
                 f1_avg_dev = f1_avg_dev_sum/batch_iter
 
@@ -363,6 +367,7 @@ def train():
                     print(format_str % (batch_iter, batch_sample, cum_sample, datetime.now(),
                                         step, loss_tst_value, accuracy_tst_value,
                                         f1_neg_tst, f1_pos_tst, f1_avg_tst))
+                    sys.stdout.flush()
 
                     batch_iter += 1
 
@@ -372,6 +377,7 @@ def train():
 
                 format_str = ('[Test] %s: step %d, acc = %.4f, f1 = %.4f')
                 print(format_str % (datetime.now(), step,  acc_avg_tst_sum / batch_iter, f1_avg_tst_sum / batch_iter))
+                sys.stdout.flush()
 
                 if maxdev<(acc_avg_dev_sum/batch_iter):
                     maxdev = acc_avg_dev_sum/batch_iter
@@ -381,6 +387,7 @@ def train():
 
                 format_str = ('[Status] %s: step %d, maxindex = %d, maxdev = %.4f, maxtst = %.4f')
                 print(format_str % (datetime.now(), step, maxindex, maxdev, maxtst))
+                sys.stdout.flush()
 
 
             # Save the model checkpoint periodically.
