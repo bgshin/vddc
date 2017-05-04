@@ -301,7 +301,7 @@ def train():
                                      examples_per_sec, sec_per_batch))
                 sys.stdout.flush()
 
-            if step % 100 == 0:
+            if step % 1000 == 0:
                 # dev
                 batch_iter = 0
                 cum_sample = 0

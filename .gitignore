@@ -90,3 +90,5 @@ ENV/
 data
 .idea
 .DS_Store
+train
+trained.02
