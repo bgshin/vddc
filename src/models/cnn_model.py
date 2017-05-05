@@ -246,3 +246,150 @@ class CNN(object):
         # The total loss is defined as the cross entropy loss plus all of the weight
         # decay terms (L2 loss).
         return tf.add_n(tf.get_collection('losses'), name='total_loss'), accuracy
+
+
+
+class CnnMulti(object):
+    def __init__(self, vocab_size, num_gpus):
+        self.input_x ={}
+        self.input_y = {}
+        self.embedded_tokens_expanded = {}
+
+        for i in num_gpus:
+            self.input_x[i] = tf.placeholder(tf.int32, [None, FLAGS.sequence_length], name="input_x_%d" % i)
+            self.input_y[i] = tf.placeholder(tf.float32, [None, FLAGS.NUM_CLASSES], name="input_y_%d" % i)
+
+        self.input_x[10] = tf.placeholder(tf.int32, [None, FLAGS.sequence_length], name="input_x_dev")
+        self.input_y[10] = tf.placeholder(tf.float32, [None, FLAGS.NUM_CLASSES], name="input_y_dev")
+
+        self.input_x[11] = tf.placeholder(tf.int32, [None, FLAGS.sequence_length], name="input_x_tst")
+        self.input_y[11] = tf.placeholder(tf.float32, [None, FLAGS.NUM_CLASSES], name="input_y_tst")
+
+        self.embedding = tf.placeholder(tf.float32, [vocab_size, FLAGS.embedding_size])
+        print 'self.embedding', self.embedding
+
+        self.w2v = _variable_with_weight_decay('embedding',
+                                                shape=[vocab_size, FLAGS.embedding_size],
+                                                stddev=0.1,
+                                                wd=None,
+                                                trainable=False)
+        print 'self.w2v', self.w2v
+
+        self.embedding_params = self.w2v.assign(self.embedding)
+        print 'self.embedding_params',self.embedding_params
+
+        # embedding_init = self.w2v.assign(self.embedding)
+
+    def lookup(self, model_input_index):
+        self.embedded_tokens_expanded[model_input_index] = tf.expand_dims(tf.nn.embedding_lookup(self.w2v, self.input_x[model_input_index]), -1)
+        # (?, 1200, 100, 1)
+        # print 'embedded_tokens_expanded', self.embedded_tokens_expanded
+
+        return self.embedded_tokens_expanded[model_input_index], self.input_y[model_input_index]
+
+
+
+
+
+    def inference(self, txts, dropout_keep_prob=1.0):
+        """Build the cnn based sentiment prediction model.
+
+        Args:
+        txts: text returned from get_inputs().
+
+        Returns:
+        Logits.
+        """
+        # We instantiate all variables using tf.get_variable() instead of
+        # tf.Variable() in order to share variables across multiple GPU training runs.
+        # If we only ran this model on a single GPU, we could simplify this function
+        # by replacing all instances of tf.get_variable() with tf.Variable().
+        #
+
+
+        pooled_outputs = []
+        for i, filter_size in enumerate(list(map(int, FLAGS.filter_sizes.split(",")))):
+            with tf.variable_scope("conv-maxpool-%s" % filter_size) as scope:
+                cnn_shape = [filter_size, FLAGS.embedding_size, 1, FLAGS.num_filters]
+                kernel = _variable_with_weight_decay('weights',
+                                                     shape=cnn_shape,
+                                                     stddev=0.1,
+                                                     wd=None,
+                                                     trainable=True)
+                conv = tf.nn.conv2d(txts, kernel, [1, 1, 1, 1], padding='VALID')
+                biases = _variable_on_cpu('biases', [FLAGS.num_filters], tf.constant_initializer(0.0), trainable=True)
+                pre_activation = tf.nn.bias_add(conv, biases)
+                conv_out = tf.nn.relu(pre_activation, name=scope.name)
+                _activation_summary(conv_out)
+
+
+                ksize = [1, FLAGS.sequence_length - filter_size + 1, 1, 1]
+                print 'filter_size', filter_size
+                print 'ksize', ksize
+                print 'conv_out', conv_out
+                pooled = tf.nn.max_pool(conv_out, ksize=ksize, strides=[1, 1, 1, 1],
+                                     padding='VALID', name='pool1')
+
+                norm_pooled = tf.nn.lrn(pooled, 4, bias=1.0, alpha=0.001 / 9.0, beta=0.75,
+                                name='norm1')
+
+                # pooled_outputs.append(pooled)
+                pooled_outputs.append(norm_pooled)
+
+
+
+
+        # print 'norm1', norm1
+        num_filters_total = FLAGS.num_filters * len(list(map(int, FLAGS.filter_sizes.split(","))))
+        h_pool = tf.concat(pooled_outputs, 3)
+
+        h_pool = tf.concat(pooled_outputs, 3)
+        h_pool_flat = tf.reshape(h_pool, [-1, num_filters_total])
+        print 'h_pool', h_pool
+        print 'h_pool_flat', h_pool_flat
+
+        h_drop = tf.nn.dropout(h_pool_flat, dropout_keep_prob)
+
+
+        # num_filters_total = num_filters * 1
+        # norm_flat = tf.reshape(norm1, [-1, num_filters_total])
+
+
+        with tf.variable_scope('softmax_linear') as scope:
+            weights = _variable_with_weight_decay_xavier('weights', [num_filters_total, FLAGS.NUM_CLASSES],
+                                                wd=0.2, trainable=True)
+            biases = _variable_on_cpu('biases', [FLAGS.NUM_CLASSES],
+                                      tf.constant_initializer(0.1), trainable=True)
+            softmax_linear = tf.add(tf.matmul(h_pool_flat, weights), biases, name=scope.name)
+            _activation_summary(softmax_linear)
+
+        return softmax_linear
+
+    def loss(self, logits, labels):
+        """Add L2Loss to all the trainable variables.
+
+        Add summary for "Loss" and "Loss/avg".
+        Args:
+        logits: Logits from inference().
+        labels: Labels from distorted_inputs or inputs(). 1-D tensor
+                of shape [batch_size]
+
+        Returns:
+        Loss tensor of type float.
+        """
+        # Calculate the average cross entropy loss across the batch.
+        # labels = tf.cast(labels, tf.int64)
+        # labels = tf.cast(tf.argmax(labels, 1), tf.int64)
+        cross_entropy = tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=labels, name='cross_entropy_per_example')
+        # cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=labels, logits=logits, name='cross_entropy_per_example')
+        cross_entropy_mean = tf.reduce_mean(cross_entropy, name='cross_entropy')
+        tf.add_to_collection('losses', cross_entropy_mean)
+
+        golds = tf.argmax(labels, 1, name="golds")
+        predictions = tf.argmax(logits, 1, name="predictions")
+        correct_predictions = tf.equal(predictions, tf.argmax(labels, 1))
+        accuracy = tf.reduce_mean(tf.cast(correct_predictions, "float"), name="accuracy")
+
+        # The total loss is defined as the cross entropy loss plus all of the weight
+        # decay terms (L2 loss).
+        return tf.add_n(tf.get_collection('losses'), name='total_loss'), accuracy

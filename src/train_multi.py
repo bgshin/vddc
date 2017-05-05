@@ -14,7 +14,7 @@ import tensorflow as tf
 from src.utils import cnn_input
 from src.models import cnn_model
 from sklearn.metrics import precision_score, recall_score, f1_score
-from src.models.cnn_model import CNN
+from src.models.cnn_model import CNN, CnnMulti
 from src.utils.cnn_input import DataFeeder
 from src.utils.word2vecReader import Word2Vec
 from src.utils.butils import Timer
@@ -28,8 +28,10 @@ tf.app.flags.DEFINE_string('train_dir', './train/',
                            """and checkpoint.""")
 tf.app.flags.DEFINE_integer('max_steps', 100000,
                             """Number of batches to run. (100epoch = 100*1000 steps, 560,000/500=1000)""")
-tf.app.flags.DEFINE_integer('num_gpus', 4,
-                            """How many GPUs to use.""")
+# tf.app.flags.DEFINE_integer('num_gpus', 4,
+#                             """How many GPUs to use.""")
+tf.app.flags.DEFINE_integer('visible_device_list', '2,3',
+                            """visible_device_list.""")
 tf.app.flags.DEFINE_boolean('log_device_placement', False,
                             """Whether to log device placement.""")
 tf.app.flags.DEFINE_float('dropout_keep_prob', 0.8, """dropout_keep_prob""")
@@ -52,6 +54,8 @@ tf.app.flags.DEFINE_integer('n_trn', 500,
 # tf.app.flags.DEFINE_integer('n_trn', 3,
 #                             """Number of batches for tst.""")
 
+visible_device_list = map(int, FLAGS.visible_device_list.split(','))
+num_gpus = len(visible_device_list)
 
 def load_w2v(w2vdim):
     # model_path = '../../data/w2vnew/corpus.friends+nyt+wiki+amazon.fasttext.skip.d%d.vec' % w2vdim
@@ -62,7 +66,7 @@ def load_w2v(w2vdim):
     return model, len(model.vocab)
 
 
-def tower_loss(model, namescope, target):
+def tower_loss(model, namescope, target, model_input_index):
     """Calculate the total loss on a single tower running the CIFAR model.
 
     Args:
@@ -73,7 +77,7 @@ def tower_loss(model, namescope, target):
     """
     # Get images and labels for tweets
     # txts, labels = cnnt_input.get_inputs(target, batch_size=batch_size)
-    txts, labels = model.lookup()
+    txts, labels = model.lookup(model_input_index)
 
     # Build inference Graph.
     if target=='trn':
@@ -169,7 +173,9 @@ def train():
 
     """Train cnnt for a number of steps."""
     with tf.Graph().as_default(), tf.device('/cpu:0'):
-        cnn = CNN(vocab_size+1)
+        # cnn = CNN(vocab_size+1)
+        cnn = CnnMulti(vocab_size + 1, FLAGS.visible_device_list)
+
         embedding_init = cnn.w2v.assign(cnn.embedding)
 
         # Create a variable to count the number of train() calls. This equals the
@@ -187,25 +193,25 @@ def train():
             with tf.device('/gpu:%d' % 0):
                 with tf.name_scope('%s_%d_dev' % (FLAGS.TOWER_NAME, 0)) as namescope:
                     loss_dev, accuracy_dev, logits_dev, y_true_dev, y_pred_dev = \
-                        tower_loss(cnn, namescope, 'dev')
+                        tower_loss(cnn, namescope, 'dev', 10)
                     # Reuse variables for the next tower.
                     tf.get_variable_scope().reuse_variables()
 
             with tf.device('/gpu:%d' % 1):
                 with tf.name_scope('%s_%d_tst' % (FLAGS.TOWER_NAME, 0)) as namescope:
                     loss_tst, accuracy_tst, logits_tst, y_true_tst, y_pred_tst = \
-                        tower_loss(cnn, namescope, 'tst')
+                        tower_loss(cnn, namescope, 'tst', 11)
                     # Reuse variables for the next tower.
                     tf.get_variable_scope().reuse_variables()
 
 
-            for i in xrange(FLAGS.num_gpus):
+            for i in xrange(num_gpus):
                 with tf.device('/gpu:%d' % i):
                     with tf.name_scope('%s_%d' % (FLAGS.TOWER_NAME, i)) as namescope:
                         # Calculate the loss for one tower of the CIFAR model. This function
                         # constructs the entire CIFAR model but shares the variables across
                         # all towers.
-                        loss, accuracy, _, _, _ = tower_loss(cnn, namescope, 'trn')
+                        loss, accuracy, _, _, _ = tower_loss(cnn, namescope, 'trn', i)
 
                         # Reuse variables for the next tower.
                         tf.get_variable_scope().reuse_variables()
@@ -258,8 +264,8 @@ def train():
         # Start running operations on the Graph. allow_soft_placement must be set to
         # True to build towers on GPU, as some of the ops do not have GPU
         # implementations.
-        gpu_options = tf.GPUOptions(visible_device_list=str('0,1,2,3'), allow_growth=True) # o
-        # gpu_options = tf.GPUOptions(visible_device_list=str('2,3'), allow_growth=True)  # o
+        # gpu_options = tf.GPUOptions(visible_device_list=str('0,1,2,3'), allow_growth=True) # o
+        gpu_options = tf.GPUOptions(visible_device_list=str(FLAGS.visible_device_list), allow_growth=True)  # o
         sess = tf.Session(config=tf.ConfigProto(
             gpu_options=gpu_options,
             allow_soft_placement=True,
@@ -274,13 +280,18 @@ def train():
 
         summary_writer = tf.summary.FileWriter(FLAGS.train_dir, sess.graph)
 
-        for step in xrange(FLAGS.max_steps):
+
+        for step in range(0, FLAGS.max_steps, num_gpus):
             save_model = False
             start_time = time.time()
             # _, loss_value = sess.run([train_op, loss])
-            x_batch, y_batch = yelp_trn.get_next()
+
+            for i in range(num_gpus):
+                x_batch, y_batch = yelp_trn.get_next()
+                feed_dict = {cnn.input_x[i]: x_batch, cnn.input_y[i]: y_batch}
+
             _, summary_str, loss_value, accuracy_val = sess.run([train_op, summary_op, loss, accuracy],
-                                                   feed_dict={cnn.input_x: x_batch, cnn.input_y: y_batch})
+                                                   feed_dict=feed_dict)
             summary_writer.add_summary(summary_str, step)
 
             # embedded_tokens_expanded = \
@@ -291,9 +302,9 @@ def train():
             assert not np.isnan(loss_value), 'Model diverged with loss = NaN'
 
             if step % 10 == 0:
-                num_examples_per_step = FLAGS.batch_size * FLAGS.num_gpus
+                num_examples_per_step = FLAGS.batch_size * num_gpus
                 examples_per_sec = num_examples_per_step / duration
-                sec_per_batch = duration / FLAGS.num_gpus
+                sec_per_batch = duration / num_gpus
 
                 format_str = ('%s: step %d, loss = %.4f, acc = %.4f (%.1f examples/sec; %.3f '
                               'sec/batch)')
@@ -301,7 +312,7 @@ def train():
                                      examples_per_sec, sec_per_batch))
                 sys.stdout.flush()
 
-            if step % 1000 == 0:
+            if step % 100 == 0:
                 # dev
                 batch_iter = 0
                 cum_sample = 0
