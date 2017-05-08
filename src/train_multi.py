@@ -14,7 +14,7 @@ import tensorflow as tf
 from src.utils import cnn_input
 from src.models import cnn_model
 from sklearn.metrics import precision_score, recall_score, f1_score
-from src.models.cnn_model import CNN, CnnMulti
+from src.models.cnn_model import CNN, CnnMulti, W2V
 from src.utils.cnn_input import DataFeeder
 from src.utils.word2vecReader import Word2Vec
 from src.utils.butils import Timer
@@ -30,7 +30,7 @@ tf.app.flags.DEFINE_integer('max_steps', 100000,
                             """Number of batches to run. (100epoch = 100*1000 steps, 560,000/500=1000)""")
 # tf.app.flags.DEFINE_integer('num_gpus', 4,
 #                             """How many GPUs to use.""")
-tf.app.flags.DEFINE_integer('visible_device_list', '2,3',
+tf.app.flags.DEFINE_string('visible_device_list', '0,1,2,3',
                             """visible_device_list.""")
 tf.app.flags.DEFINE_boolean('log_device_placement', False,
                             """Whether to log device placement.""")
@@ -66,7 +66,7 @@ def load_w2v(w2vdim):
     return model, len(model.vocab)
 
 
-def tower_loss(model, namescope, target, model_input_index):
+def tower_loss(model, namescope, target, w2v_vars):
     """Calculate the total loss on a single tower running the CIFAR model.
 
     Args:
@@ -77,7 +77,7 @@ def tower_loss(model, namescope, target, model_input_index):
     """
     # Get images and labels for tweets
     # txts, labels = cnnt_input.get_inputs(target, batch_size=batch_size)
-    txts, labels = model.lookup(model_input_index)
+    txts, labels = model.lookup(w2v_vars)
 
     # Build inference Graph.
     if target=='trn':
@@ -174,9 +174,13 @@ def train():
     """Train cnnt for a number of steps."""
     with tf.Graph().as_default(), tf.device('/cpu:0'):
         # cnn = CNN(vocab_size+1)
-        cnn = CnnMulti(vocab_size + 1, FLAGS.visible_device_list)
 
-        embedding_init = cnn.w2v.assign(cnn.embedding)
+
+
+
+        w2v_lookup = W2V(vocab_size + 1)
+        embedding_init = w2v_lookup.w2v.assign(w2v_lookup.embedding)
+
 
         # Create a variable to count the number of train() calls. This equals the
         # number of batches processed * FLAGS.num_gpus.
@@ -186,32 +190,36 @@ def train():
 
         opt = tf.train.AdamOptimizer(1e-3)
 
+
         # Calculate the gradients for each model tower.
         tower_grads = []
 
         with tf.variable_scope(tf.get_variable_scope()):
             with tf.device('/gpu:%d' % 0):
                 with tf.name_scope('%s_%d_dev' % (FLAGS.TOWER_NAME, 0)) as namescope:
+                    cnndev = CnnMulti('dev')
                     loss_dev, accuracy_dev, logits_dev, y_true_dev, y_pred_dev = \
-                        tower_loss(cnn, namescope, 'dev', 10)
+                        tower_loss(cnndev, namescope, 'dev', w2v_lookup.w2v)
                     # Reuse variables for the next tower.
                     tf.get_variable_scope().reuse_variables()
 
             with tf.device('/gpu:%d' % 1):
                 with tf.name_scope('%s_%d_tst' % (FLAGS.TOWER_NAME, 0)) as namescope:
+                    cnntst = CnnMulti('tst')
                     loss_tst, accuracy_tst, logits_tst, y_true_tst, y_pred_tst = \
-                        tower_loss(cnn, namescope, 'tst', 11)
+                        tower_loss(cnntst, namescope, 'tst', w2v_lookup.w2v)
                     # Reuse variables for the next tower.
                     tf.get_variable_scope().reuse_variables()
 
-
+            cnntrn={}
             for i in xrange(num_gpus):
                 with tf.device('/gpu:%d' % i):
                     with tf.name_scope('%s_%d' % (FLAGS.TOWER_NAME, i)) as namescope:
+                        cnntrn[i] = CnnMulti('trn_%d' % i)
                         # Calculate the loss for one tower of the CIFAR model. This function
                         # constructs the entire CIFAR model but shares the variables across
                         # all towers.
-                        loss, accuracy, _, _, _ = tower_loss(cnn, namescope, 'trn', i)
+                        loss, accuracy, _, _, _ = tower_loss(cnntrn[i], namescope, 'trn', w2v_lookup.w2v)
 
                         # Reuse variables for the next tower.
                         tf.get_variable_scope().reuse_variables()
@@ -272,8 +280,10 @@ def train():
             log_device_placement=FLAGS.log_device_placement))
         sess.run(init)
         # embedding init with pre-trained weights
-        expanded_w2v = np.concatenate((w2vmodel.syn0, np.zeros((1,100))), axis=0)
-        sess.run(embedding_init, feed_dict={cnn.embedding: expanded_w2v})
+        expanded_w2v = np.concatenate((w2vmodel.syn0, np.zeros((1, 100))), axis=0)
+        sess.run(embedding_init, feed_dict={w2v_lookup.embedding: expanded_w2v})
+
+
 
         # Start the queue runners.
         tf.train.start_queue_runners(sess=sess)
@@ -286,9 +296,11 @@ def train():
             start_time = time.time()
             # _, loss_value = sess.run([train_op, loss])
 
+            feed_dict = {}
             for i in range(num_gpus):
                 x_batch, y_batch = yelp_trn.get_next()
-                feed_dict = {cnn.input_x[i]: x_batch, cnn.input_y[i]: y_batch}
+                feed_dict[cnntrn[i].input_x] = x_batch
+                feed_dict[cnntrn[i].input_y] = y_batch
 
             _, summary_str, loss_value, accuracy_val = sess.run([train_op, summary_op, loss, accuracy],
                                                    feed_dict=feed_dict)
@@ -300,6 +312,9 @@ def train():
             duration = time.time() - start_time
 
             assert not np.isnan(loss_value), 'Model diverged with loss = NaN'
+
+            if step == 0:
+                continue
 
             if step % 10 == 0:
                 num_examples_per_step = FLAGS.batch_size * num_gpus
@@ -325,7 +340,7 @@ def train():
 
                     loss_dev_value, accuracy_dev_value, logits_dev_value, y_true_dev_value, y_pred_dev_value = \
                         sess.run([loss_dev, accuracy_dev, logits_dev, y_true_dev, y_pred_dev],
-                                 feed_dict={cnn.input_x: x_dev, cnn.input_y: y_dev})
+                                 feed_dict={cnndev.input_x: x_dev, cnndev.input_y: y_dev})
 
                     f1_neg_dev = f1_score(y_true_dev_value==0, y_pred_dev_value==0)
                     f1_pos_dev = f1_score(y_true_dev_value == 1, y_pred_dev_value == 1)
@@ -364,7 +379,7 @@ def train():
 
                     loss_tst_value, accuracy_tst_value, logits_tst_value, y_true_tst_value, y_pred_tst_value = \
                         sess.run([loss_tst, accuracy_tst, logits_tst, y_true_tst, y_pred_tst],
-                                 feed_dict={cnn.input_x: x_tst, cnn.input_y: y_tst})
+                                 feed_dict={cnntst.input_x: x_tst, cnntst.input_y: y_tst})
 
                     f1_neg_tst = f1_score(y_true_tst_value == 0, y_pred_tst_value == 0)
                     f1_pos_tst = f1_score(y_true_tst_value == 1, y_pred_tst_value == 1)

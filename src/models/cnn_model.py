@@ -111,6 +111,7 @@ def _activation_summary(x):
                       tf.nn.zero_fraction(x))
 
 
+
 class CNN(object):
     def __init__(self, vocab_size):
         self.input_x = tf.placeholder(tf.int32, [None, FLAGS.sequence_length], name="input_x")
@@ -249,47 +250,37 @@ class CNN(object):
 
 
 
-class CnnMulti(object):
-    def __init__(self, vocab_size, num_gpus):
-        self.input_x ={}
-        self.input_y = {}
-        self.embedded_tokens_expanded = {}
 
-        for i in num_gpus:
-            self.input_x[i] = tf.placeholder(tf.int32, [None, FLAGS.sequence_length], name="input_x_%d" % i)
-            self.input_y[i] = tf.placeholder(tf.float32, [None, FLAGS.NUM_CLASSES], name="input_y_%d" % i)
+class Singleton(type):
+    _instances = {}
+    def __call__(cls, *args, **kwargs):
+        if cls not in cls._instances:
+            cls._instances[cls] = super(Singleton, cls).__call__(*args, **kwargs)
+        return cls._instances[cls]
 
-        self.input_x[10] = tf.placeholder(tf.int32, [None, FLAGS.sequence_length], name="input_x_dev")
-        self.input_y[10] = tf.placeholder(tf.float32, [None, FLAGS.NUM_CLASSES], name="input_y_dev")
 
-        self.input_x[11] = tf.placeholder(tf.int32, [None, FLAGS.sequence_length], name="input_x_tst")
-        self.input_y[11] = tf.placeholder(tf.float32, [None, FLAGS.NUM_CLASSES], name="input_y_tst")
-
+class W2V(object):
+    __metaclass__ = Singleton
+    def __init__(self, vocab_size):
         self.embedding = tf.placeholder(tf.float32, [vocab_size, FLAGS.embedding_size])
-        print 'self.embedding', self.embedding
-
         self.w2v = _variable_with_weight_decay('embedding',
-                                                shape=[vocab_size, FLAGS.embedding_size],
-                                                stddev=0.1,
-                                                wd=None,
-                                                trainable=False)
-        print 'self.w2v', self.w2v
+                                               shape=[vocab_size, FLAGS.embedding_size],
+                                               stddev=0.1,
+                                               wd=None,
+                                               trainable=False)
 
         self.embedding_params = self.w2v.assign(self.embedding)
-        print 'self.embedding_params',self.embedding_params
-
-        # embedding_init = self.w2v.assign(self.embedding)
-
-    def lookup(self, model_input_index):
-        self.embedded_tokens_expanded[model_input_index] = tf.expand_dims(tf.nn.embedding_lookup(self.w2v, self.input_x[model_input_index]), -1)
-        # (?, 1200, 100, 1)
-        # print 'embedded_tokens_expanded', self.embedded_tokens_expanded
-
-        return self.embedded_tokens_expanded[model_input_index], self.input_y[model_input_index]
 
 
+class CnnMulti(object):
+    def __init__(self, namespace):
+        self.input_x = tf.placeholder(tf.int32, [None, FLAGS.sequence_length], name="input_x_%s" % namespace)
+        self.input_y = tf.placeholder(tf.float32, [None, FLAGS.NUM_CLASSES], name="input_y_%s" % namespace)
 
-
+    def lookup(self, w2v_vars):
+        embedded_tokens = tf.nn.embedding_lookup(w2v_vars, self.input_x)
+        self.embedded_tokens_expanded = tf.expand_dims(embedded_tokens, -1)
+        return self.embedded_tokens_expanded, self.input_y
 
     def inference(self, txts, dropout_keep_prob=1.0):
         """Build the cnn based sentiment prediction model.
