@@ -261,13 +261,18 @@ class Singleton(type):
 
 class W2V(object):
     __metaclass__ = Singleton
-    def __init__(self, vocab_size):
+    def __init__(self, vocab_size, trainable):
+        if trainable is True:
+            print 'w2v is trainable'
+        else:
+            print 'w2v is STATIC (NOT trainable)'
+
         self.embedding = tf.placeholder(tf.float32, [vocab_size, FLAGS.embedding_size])
         self.w2v = _variable_with_weight_decay('embedding',
                                                shape=[vocab_size, FLAGS.embedding_size],
                                                stddev=0.1,
                                                wd=None,
-                                               trainable=False)
+                                               trainable=trainable)
 
         self.embedding_params = self.w2v.assign(self.embedding)
 
