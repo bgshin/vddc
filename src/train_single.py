@@ -60,9 +60,6 @@ def load_w2v(w2vdim, simple_run=True, source="twitter"):
 
 
 def run_train(w2vsource, w2vdim, w2vnumfilters, randomseed, l2_reg_lambda):
-    max_len = 60
-    num_classes = 3
-
     with Timer('w2v..'):
         w2vmodel, vocab_size = load_w2v(w2vdim=FLAGS.embedding_size)
 
@@ -80,8 +77,19 @@ def run_train(w2vsource, w2vdim, w2vnumfilters, randomseed, l2_reg_lambda):
         yelp_tst = DataFeeder(w2vmodel, 'yelp', 'tst', maxlen=FLAGS.sequence_length, batch_size=batch_size,
                               shuffle=False)
 
+    init = tf.global_variables_initializer()
+
+    sess = tf.Session(config=tf.ConfigProto(
+        allow_soft_placement=True,
+        log_device_placement=FLAGS.log_device_placement))
+
     cnn = CNN(vocab_size + 1)
     embedding_init = cnn.w2v.assign(cnn.embedding)
+
+    sess.run(init)
+    # embedding init with pre-trained weights
+    expanded_w2v = np.concatenate((w2vmodel.syn0, np.zeros((1, 100))), axis=0)
+    sess.run(embedding_init, feed_dict={cnn.embedding: expanded_w2v})
 
     with tf.Graph().as_default():
         max_af1_dev = 0
@@ -102,7 +110,7 @@ def run_train(w2vsource, w2vdim, w2vnumfilters, randomseed, l2_reg_lambda):
             log_device_placement=FLAGS.log_device_placement))
         sess.run(init)
 
-        Z
+
 
 
 

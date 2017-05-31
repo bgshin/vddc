@@ -92,3 +92,5 @@ data
 .DS_Store
 train
 trained.02
+train_0
+train_1
